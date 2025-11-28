@@ -16,4 +16,4 @@ def EssentialMatrixFromFundamentalMatrix(F, K):
     E : array-like
         The essential matrix
     """
-    
+    return K.T @ F @ K

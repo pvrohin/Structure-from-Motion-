@@ -5,6 +5,8 @@ from itertools import combinations
 from Utils import *
 from GetHomographyInliers import *
 from GetInliersRANSAC import get_inliers_ransac
+from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
+from ExtractCameraPose import ExtractCameraPose
 
 def natural_sort_key(text):
     """Convert text to a tuple for natural sorting (e.g., '2.png' before '10.png')"""
@@ -25,6 +27,7 @@ def sfm_wrapper(data_path, results_dir):
     print(image_paths)
 
     feature_x, feature_y, feature_flag = get_data(data_path, len(image_ids))
+    filtered_feature_flags = np.zeros_like(feature_flag)
     print(feature_x.shape)
     print(feature_y.shape)
     print(feature_flag.shape)
@@ -46,6 +49,13 @@ def sfm_wrapper(data_path, results_dir):
     homography_matches_dir = os.path.join(results_dir, "homography_matches")
     if not os.path.exists(homography_matches_dir):
         os.makedirs(homography_matches_dir)
+    
+    # Create directory for RANSAC matches
+    ransac_matches_dir = os.path.join(results_dir, "ransac_matches")
+    if not os.path.exists(ransac_matches_dir):
+        os.makedirs(ransac_matches_dir)
+
+    inliers = {} # Dictionary of global inliers between all combinations
     
     print("\nSaving original matches for all image combinations...")
     for combination in feature_combinations:
@@ -91,8 +101,53 @@ def sfm_wrapper(data_path, results_dir):
         image2_coords_inliers = np.hstack((feature_x[f_inlier_idx, image2_id-1].reshape((-1,1)), feature_y[f_inlier_idx, image2_id-1].reshape((-1,1))))
 
         print('Number of matches RANSAC: ', len(image1_coords_inliers))
+        save_path = os.path.join(ransac_matches_dir, f'ransac_matches_{combination_key}.png')
         draw_feature_matches(image_paths[image1_id-1], image_paths[image2_id-1], image1_coords_inliers, image2_coords_inliers,
-                                 color=(0, 255, 0), save_path=results_dir+f'/ransac_matches_{combination_key}.png')
+                                 color=(0, 255, 0), save_path=save_path)
+        print(f"  Saved: {save_path} ({len(f_inlier_idx)} inliers)")
+        inliers[combination_key] = [image1_coords_inliers, image2_coords_inliers]
+        filtered_feature_flags[f_inlier_idx, image1_id-1] = 1
+        filtered_feature_flags[f_inlier_idx, image2_id-1] = 1
+
+    print(f"\nAll original matches saved to: {original_matches_dir}")
+    print(f"All homography matches saved to: {homography_matches_dir}")
+    print(f"All RANSAC matches saved to: {ransac_matches_dir}")
+    
+    #Consider only first 2 image pairs for now
+    image1_id, image2_id = feature_combinations[0]
+    combination_key = str(image1_id) + "_" + str(image2_id)
+    result_dir = os.path.join(results_dir, combination_key)
+    
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+
+    print(f'Processing image pair: {combination_key}')
+
+    _idx = np.where(filtered_feature_flags[:, image1_id-1] & filtered_feature_flags[:, image2_id-1])
+    image1_inliers = np.hstack((feature_x[_idx, image1_id-1].reshape((-1, 1)), feature_y[_idx, image1_id-1].reshape((-1, 1))))
+    image2_inliers = np.hstack((feature_x[_idx, image2_id-1].reshape((-1, 1)), feature_y[_idx, image2_id-1].reshape((-1, 1))))
+
+    K = np.array([[531.122155322710, 0 ,407.192550839899],[0, 531.541737503901, 313.308715048366],[0,0,1]])
+    
+    E = EssentialMatrixFromFundamentalMatrix(F, K)
+
+    C, R = ExtractCameraPose(E)
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
