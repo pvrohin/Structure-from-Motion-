@@ -60,144 +60,59 @@ def get_data(data_path, no_of_images):
 
     return x_features, y_features, feature_flags
 
-def draw_feature_matches(image_path1, image_path2, feature_x, feature_y, feature_flag, 
-                         img_idx1, img_idx2, save_path=None, max_matches=100):
+
+def draw_features(image, coords, color=(255, 0, 0)):
     """
-    Draw feature matches between two images.
+    Draw features on an image.
     
-    :param image_path1: Path to first image
-    :type image_path1: str
-    :param image_path2: Path to second image
-    :type image_path2: str
-    :param feature_x: Array of x-coordinates for features (num_features, num_images)
-    :type feature_x: numpy.ndarray
-    :param feature_y: Array of y-coordinates for features (num_features, num_images)
-    :type feature_y: numpy.ndarray
-    :param feature_flag: Array of flags indicating feature presence (num_features, num_images)
-    :type feature_flag: numpy.ndarray
-    :param img_idx1: Index of first image (0-based)
-    :type img_idx1: int
-    :param img_idx2: Index of second image (0-based)
-    :type img_idx2: int
-    :param save_path: Optional path to save the visualization
-    :type save_path: str or None
-    :param max_matches: Maximum number of matches to display (for clarity)
-    :type max_matches: int
-    :return: Combined image with matches drawn
+    :param image: Input image (BGR format)
+    :type image: numpy.ndarray
+    :param coords: Feature coordinates as (N, 2) array with [x, y] pairs
+    :type coords: numpy.ndarray
+    :param color: Color for drawing features (B, G, R)
+    :type color: tuple
+    :return: Image with features drawn
     :rtype: numpy.ndarray
     """
-    # Load images
-    img1 = cv2.imread(image_path1)
-    img2 = cv2.imread(image_path2)
-    
-    if img1 is None:
-        raise ValueError(f"Could not load image: {image_path1}")
-    if img2 is None:
-        raise ValueError(f"Could not load image: {image_path2}")
-    
-    # Convert BGR to RGB for matplotlib
-    img1_rgb = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
-    img2_rgb = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
-    
-    # Get image dimensions
-    h1, w1 = img1_rgb.shape[:2]
-    h2, w2 = img2_rgb.shape[:2]
-    
-    # Find features that exist in both images
-    valid_mask = (feature_flag[:, img_idx1] == 1) & (feature_flag[:, img_idx2] == 1)
-    valid_indices = np.where(valid_mask)[0]
-    
-    if len(valid_indices) == 0:
-        print(f"No matching features found between image {img_idx1+1} and image {img_idx2+1}")
-        return None
-    
-    # Limit number of matches for visualization
-    if len(valid_indices) > max_matches:
-        np.random.seed(42)  # For reproducibility
-        valid_indices = np.random.choice(valid_indices, max_matches, replace=False)
-    
-    # Extract matching points
-    pts1 = np.column_stack([feature_x[valid_indices, img_idx1], 
-                           feature_y[valid_indices, img_idx1]]).astype(int)
-    pts2 = np.column_stack([feature_x[valid_indices, img_idx2], 
-                           feature_y[valid_indices, img_idx2]]).astype(int)
-    
-    # Create side-by-side visualization
-    max_h = max(h1, h2)
-    combined_img = np.zeros((max_h, w1 + w2, 3), dtype=np.uint8)
-    combined_img[:h1, :w1] = img1_rgb
-    combined_img[:h2, w1:w1+w2] = img2_rgb
-    
-    # Draw matches
-    for pt1, pt2 in zip(pts1, pts2):
-        # Generate random color for each match
-        color = tuple(np.random.randint(0, 255, 3).tolist())
-        
-        # Draw points
-        cv2.circle(combined_img, tuple(pt1), 3, color, -1)
-        cv2.circle(combined_img, (pt2[0] + w1, pt2[1]), 3, color, -1)
-        
-        # Draw line connecting matches
-        cv2.line(combined_img, tuple(pt1), (pt2[0] + w1, pt2[1]), color, 1)
-    
-    # Save if path provided
-    if save_path:
-        # Convert back to BGR for saving with OpenCV
-        combined_img_bgr = cv2.cvtColor(combined_img, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(save_path, combined_img_bgr)
-        print(f"Saved feature matches visualization to: {save_path}")
-    
-    return combined_img
+    # Convert coordinates to KeyPoint objects
+    keypoints = [cv2.KeyPoint(float(coord[0]), float(coord[1]), 1) for coord in coords]
+    image_ = cv2.drawKeypoints(image, keypoints, None, color=color, flags=0)
+    return image_
 
-def draw_all_feature_matches(image_paths, feature_x, feature_y, feature_flag, 
-                             image_pairs, results_dir, max_matches=100):
+def draw_feature_matches(image1, image2, image1_coords, image2_coords, save_path=None, color=(0, 255, 0)):
     """
-    Draw feature matches for all specified image pairs.
-    
-    :param image_paths: List of paths to images
-    :type image_paths: list
-    :param feature_x: Array of x-coordinates for features (num_features, num_images)
-    :type feature_x: numpy.ndarray
-    :param feature_y: Array of y-coordinates for features (num_features, num_images)
-    :type feature_y: numpy.ndarray
-    :param feature_flag: Array of flags indicating feature presence (num_features, num_images)
-    :type feature_flag: numpy.ndarray
-    :param image_pairs: List of tuples (img_idx1, img_idx2) where indices are 1-based
-    :type image_pairs: list
-    :param results_dir: Directory to save the visualizations
-    :type results_dir: str
-    :param max_matches: Maximum number of matches to display per pair
-    :type max_matches: int
+    Draw feature matches between two images.
+
+    :param image1: Path to image 1.
+    :type image1: str
+    :param image2: Path to image 2.
+    :type image2: str
+    :param image1_coords: Coordinates of features in image 1.
+    :type image1_coords: numpy.ndarray
+    :param image2_coords: Coordinates of features in image 2.
+    :type image2_coords: numpy.ndarray
+    :param save_path: Path to save the output image.
+    :type save_path: str, optional
+    :param color: Color of the matches.
+    :type color: tuple[int, int, int], optional
     """
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
-    
-    for img_idx1, img_idx2 in image_pairs:
-        # Convert from 1-based to 0-based indexing
-        idx1 = img_idx1 - 1
-        idx2 = img_idx2 - 1
-        
-        if idx1 >= len(image_paths) or idx2 >= len(image_paths):
-            print(f"Skipping pair ({img_idx1}, {img_idx2}): index out of range")
-            continue
-        
-        save_path = os.path.join(results_dir, f"matches_{img_idx1}_{img_idx2}.png")
-        
-        try:
-            combined_img = draw_feature_matches(
-                image_paths[idx1], 
-                image_paths[idx2],
-                feature_x, 
-                feature_y, 
-                feature_flag,
-                idx1, 
-                idx2,
-                save_path=save_path,
-                max_matches=max_matches
-            )
-            
-            if combined_img is not None:
-                num_matches = np.sum((feature_flag[:, idx1] == 1) & (feature_flag[:, idx2] == 1))
-                print(f"Image pair ({img_idx1}, {img_idx2}): {num_matches} matches found")
-        except Exception as e:
-            print(f"Error processing pair ({img_idx1}, {img_idx2}): {e}")
+
+    image1 = cv2.imread(image1)
+    image2 = cv2.imread(image2)
+
+    image1_ = draw_features(image1, image1_coords, color=(255, 0, 0))
+    image2_ = draw_features(image2, image2_coords, color=(255, 0, 0))
+
+    image1_coords_ = [cv2.KeyPoint(i[0], i[1], 1) for i in image1_coords]
+    image2_coords_ = [cv2.KeyPoint(i[0], i[1], 1) for i in image2_coords]
+
+    matches = [cv2.DMatch(i, i, 0) for i in range(len(image1_coords))]
+
+    output_img = cv2.drawMatches(image1_, image1_coords_, image2_, image2_coords_, matches, None, matchColor=color, flags=2)
+
+    # Display the output image
+    if save_path:
+        cv2.imwrite(save_path, output_img)
+    else:
+        cv2.imshow('Matches', output_img)
+        cv2.waitKey(0)
