@@ -1,6 +1,7 @@
 import os
 import argparse
 import re
+from itertools import combinations
 from Utils import *
 
 def natural_sort_key(text):
@@ -29,7 +30,18 @@ def sfm_wrapper(data_path, results_dir):
     print(feature_x)
     print(feature_y)
     print(feature_flag)
-    
+
+    #Create all combinations of feature matches from 1 to 5 
+    feature_combinations = list(combinations(range(1, 6), 2))
+    print(feature_combinations)
+
+    # Draw feature matches for all image pairs
+    print("\nDrawing feature matches for all image pairs...")
+    matches_dir = os.path.join(results_dir, "feature_matches")
+    draw_all_feature_matches(image_paths, feature_x, feature_y, feature_flag, 
+                            feature_combinations, matches_dir, max_matches=100)
+
+    print("Outlier Rejection")
     
     
 
