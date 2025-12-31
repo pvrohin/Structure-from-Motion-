@@ -1,131 +1,121 @@
-import json
+import os 
+import json 
+import torch
+from torchvision import transforms
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
 
-def read_json(jsonPath):
-	# open the json file
-	with open(jsonPath, "r") as fp:
-		# read the json data
-		data = json.load(fp)
-	
-	# return the data
-	return data
+class LoadSyntheticDataset(Dataset): 
+    def __init__(self, path_to_images, path_to_labels): 
+        
+        if not os.path.exists(path_to_images):
+            raise FileNotFoundError(f"Images directory not found: {path_to_images}")
+        
+        if not os.path.exists(path_to_labels):
+            raise FileNotFoundError(f"Labels file not found: {path_to_labels}")
+            
+        self.path_to_images = path_to_images
+        all_files = os.listdir(path_to_images)
+        self.images = [im for im in all_files if im.endswith('.png')]
+        
+        self.transform = transforms.ToTensor()
+        
+        try:
+            with open(path_to_labels, 'r') as f: 
+                self.labels = json.load(f)
+            self.camera_angle_x = self.labels.get('camera_angle_x', None)
+        except Exception as e:
+            raise
 
-def get_image_c2w(jsonData, datasetPath):
-	# define a list to store the image paths
-	imagePaths = []
-	
-	# define a list to store the camera2world matrices
-	c2ws = []
-	# iterate over each frame of the data
-	for frame in jsonData["frames"]:
-		# grab the image file name
-		imagePath = frame["file_path"]
-		imagePath = imagePath.replace(".", datasetPath)
-		imagePaths.append(f"{imagePath}.png")
-		# grab the camera2world matrix
-		c2ws.append(frame["transform_matrix"])
-	
-	# return the image file names and the camera2world matrices
-	return (imagePaths, c2ws)
+    def __getitem__ (self, idx): 
+        try:
+            label = self.labels['frames'][idx]
+            file_name = os.path.basename(label['file_path']) + '.png'
+            img_path = os.path.join(self.path_to_images, file_name)
+            
+            if not os.path.exists(img_path):
+                raise FileNotFoundError(f"Image file not found: {img_path}")
+                
+            image = Image.open(img_path).convert("RGB") 
 
-class GetImages():
-	def __init__(self, imageWidth, imageHeight):
-		# define the image width and height
-		self.imageWidth = imageWidth
-		self.imageHeight = imageHeight
-	def __call__(self, imagePath):
-		# OPTION 1: Original TensorFlow approach (requires: import tensorflow as tf)
-		# read the image file
-		# image = tf.io.read_file(imagePath)
-		# decode the image string
-		# image = tf.image.decode_jpeg(image, channels=3)
-		# convert the image dtype from uint8 to float32
-		# image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-		# resize the image to the height and width in config
-		# image = tf.image.resize(image, (self.imageHeight, self.imageWidth))
-		# image = tf.reshape(image, (self.imageHeight, self.imageWidth, 3))
-		
-		# OPTION 2: PIL/Pillow approach (requires: from PIL import Image; import numpy as np)
-		# read and decode the image
-		# image = Image.open(imagePath).convert('RGB')
-		# resize the image
-		# image = image.resize((self.imageWidth, self.imageHeight), Image.Resampling.LANCZOS)
-		# convert to numpy array and normalize to [0, 1]
-		# image = np.array(image, dtype=np.float32) / 255.0
-		
-		# OPTION 3: OpenCV approach (requires: import cv2; import numpy as np)
-		# read the image (BGR format)
-		# image = cv2.imread(imagePath)
-		# convert BGR to RGB
-		# image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-		# resize the image
-		# image = cv2.resize(image, (self.imageWidth, self.imageHeight), interpolation=cv2.INTER_LINEAR)
-		# convert to float32 and normalize to [0, 1]
-		# image = image.astype(np.float32) / 255.0
-		
-		# OPTION 4: PIL with explicit shape handling (requires: from PIL import Image; import numpy as np)
-		# read and decode the image
-		image = Image.open(imagePath).convert('RGB')
-		# resize the image
-		image = image.resize((self.imageWidth, self.imageHeight), Image.Resampling.LANCZOS)
-		# convert to numpy array
-		image = np.array(image, dtype=np.float32)
-		# normalize to [0, 1]
-		image = image / 255.0
-		# ensure correct shape
-		image = image.reshape((self.imageHeight, self.imageWidth, 3))
-		
-		# return the image
-		return image
+            if self.transform: 
+                image = self.transform(image)
 
-class GetRays:
-	def __init__(self, focalLength, imageWidth, imageHeight, near, 
-		far, nC):
-		# define the focal length, image width, and image height
-		self.focalLength = focalLength
-		self.imageWidth = imageWidth
-		self.imageHeight = imageHeight
-		# define the near and far bounding values
-		self.near = near
-		self.far = far
-		# define the number of samples for coarse model
-		self.nC = nC   
+            N_rays = 4096
+            H, W = image.shape[1], image.shape[2]
+            
+            if self.camera_angle_x is not None:
+                focal = W / (2 * np.tan(self.camera_angle_x / 2))
+            else:
+                focal = W / 2 
 
-    def __call__(self, camera2world):
-		# create a meshgrid of image dimensions
-		(x, y) = tf.meshgrid(
-			tf.range(self.imageWidth, dtype=tf.float32),
-			tf.range(self.imageHeight, dtype=tf.float32),
-			indexing="xy",
-		)
-		# define the camera coordinates
-		xCamera = (x - self.imageWidth * 0.5) / self.focalLength
-		yCamera = (y - self.imageHeight * 0.5) / self.focalLength
-		# define the camera vector
-		xCyCzC = tf.stack([xCamera, -yCamera, -tf.ones_like(x)],
-			axis=-1)
-		# slice the camera2world matrix to obtain the rotation and
-		# translation matrix
-		rotation = camera2world[:3, :3]
-		translation = camera2world[:3, -1]
+            i = torch.randint(0, W, (N_rays,))
+            j = torch.randint(0, H, (N_rays,))
+            
+            rgb_gt = image[:, j, i].permute(1, 0)  # [N_rays, 3]
 
-        # expand the camera coordinates to 
-		xCyCzC = xCyCzC[..., None, :]
-		
-		# get the world coordinates
-		xWyWzW = xCyCzC * rotation
-		
-		# calculate the direction vector of the ray
-		rayD = tf.reduce_sum(xWyWzW, axis=-1)
-		rayD = rayD / tf.norm(rayD, axis=-1, keepdims=True)
-		# calculate the origin vector of the ray
-		rayO = tf.broadcast_to(translation, tf.shape(rayD))
-		# get the sample points from the ray
-		tVals = tf.linspace(self.near, self.far, self.nC)
-		noiseShape = list(rayO.shape[:-1]) + [self.nC]
-		noise = (tf.random.uniform(shape=noiseShape) * 
-			(self.far - self.near) / self.nC)
-		tVals = tVals + noise
-		# return ray origin, direction, and the sample points
-		return (rayO, rayD, tVals) 
+            x = (i.float() - W * 0.5) / focal
+            y = (j.float() - H * 0.5) / focal
+            z = -torch.ones_like(x)
+            dirs = torch.stack([x, y, z], dim=-1)  # [N_rays, 3]
+
+            c2w = torch.tensor(label['transform_matrix'], dtype=torch.float32)  # [4, 4]
+            rays_d = (dirs @ c2w[:3, :3].T).float()  # Rotate ray directions
+            rays_o = c2w[:3, 3].expand(rays_d.shape)  # [N_rays, 3]
+
+            near, far = 2.0, 6.0
+            t_vals = torch.linspace(0., 1., steps=64)
+            z_vals = near * (1. - t_vals) + far * t_vals  # [64]
+            z_vals = z_vals.expand(N_rays, -1)  # [N_rays, 64]
+
+            mids = 0.5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            upper = torch.cat([mids, z_vals[..., -1:]], -1)
+            lower = torch.cat([z_vals[..., :1], mids], -1)
+            t_rand = torch.rand_like(z_vals)
+            z_vals = lower + (upper - lower) * t_rand
+
+            points = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., :, None]  # [N_rays, 64, 3]
+
+            return {
+                'points': points,
+                'rays_d': rays_d,
+                'rgb_gt': rgb_gt,
+                'z_vals': z_vals
+            }
+        except Exception as e:
+            print(f"Error processing item {idx}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def __len__(self): 
+        return len(self.images)
+
+class CustomDataloader: 
+    def __init__(self, batch_size, path_to_images=None, path_to_labels=None): 
+        
+        if path_to_images is None or path_to_labels is None:
+            raise ValueError("Both path_to_images and path_to_labels must be provided")
+            
+        self.dataset = LoadSyntheticDataset(
+                path_to_images=path_to_images, 
+                path_to_labels=path_to_labels  
+            )
+        self.batch_size = batch_size
+        self.loader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
+    
+    def __iter__(self):
+        return iter(self.loader)
+        
+    def __len__(self):
+        return len(self.loader)
+
+workspace_root = os.path.dirname(os.path.abspath(__file__))
+base_path = os.path.join(workspace_root, 'nerf_synthetic', 'chair')
+data_path = os.path.join(base_path, 'train')
+transforms_path = os.path.join(base_path, 'transforms_train.json')
+
+batch_size = 1
+        
+dataloader = CustomDataloader(batch_size, data_path, transforms_path)
