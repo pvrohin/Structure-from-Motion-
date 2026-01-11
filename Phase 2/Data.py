@@ -110,12 +110,3 @@ class CustomDataloader:
         
     def __len__(self):
         return len(self.loader)
-
-workspace_root = os.path.dirname(os.path.abspath(__file__))
-base_path = os.path.join(workspace_root, 'nerf_synthetic', 'chair')
-data_path = os.path.join(base_path, 'train')
-transforms_path = os.path.join(base_path, 'transforms_train.json')
-
-batch_size = 1
-        
-dataloader = CustomDataloader(batch_size, data_path, transforms_path)
